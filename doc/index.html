@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>GPX/CSV保存（PowerApps）</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+body { font-family: sans-serif; margin: 10px; }
+#map { height: 450px; margin-top: 10px; }
+
+.number-icon {
+  color: white;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  text-align: center;
+  line-height: 26px;
+  font-weight: bold;
+  border: 2px solid white;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 10px;
+}
+th, td {
+  border: 1px solid #aaa;
+  padding: 4px;
+}
+td[contenteditable] {
+  background: #f9f9f9;
+}
+button {
+  padding: 4px 8px;
+  margin-top: 6px;
+}
+</style>
+
+</head>
+
+<body>
+<h3>GPX/CSV保存（PowerApps）</h3>
+
+GPX読込： <input type="file" id="gpxfile" accept=".gpx">
+
+CSV読込： <input type="file" id="csvfile" accept=".csv">
+
+<button id="saveCsv">CSV保存</button>
+
+<div id="map"></div>
+
+<h4>ピン一覧（編集可）</h4>
+<table>
+<thead>
+<tr>
+  <th>Title</th>
+  <th>RecordJST</th>
+  <th>Latitude</th>
+  <th>Longitude</th>
+  <th>Comment</th>
+  <th>CommentUser</th>
+  <th>AudioJson</th>
+  <th>削除</th>
+</tr>
+</thead>
+<tbody id="list"></tbody>
+</table>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
+
+<script>
+const map = L.map('map').setView([35.681236, 139.767125], 12);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap'
+}).addTo(map);
+
+let gpxLayer = null;
+let pinData = [];
+
+/* 色 */
+function getColor(title) {
+  if (/^[0-9]/.test(title)) return '#2A93EE';
+  if (/^A/i.test(title)) return '#E74C3C';
+  if (/^B/i.test(title)) return '#F39C12';
+  if (/^C/i.test(title)) return '#27AE60';
+  return '#7F8C8D';
+}
+
+/* GPX */
+document.getElementById('gpxfile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  if (gpxLayer) map.removeLayer(gpxLayer);
+
+  const reader = new FileReader();
+  reader.onload = ev => {
+    gpxLayer = new L.GPX(ev.target.result, {
+      async: true,
+      polyline_options: { color: 'blue', weight: 4 },
+      marker_options: { startIconUrl: null, endIconUrl: null }
+    })
+    .on('loaded', e => map.fitBounds(e.target.getBounds()))
+    .addTo(map);
+  };
+  reader.readAsText(file);
+});
+
+/* ピン追加 */
+map.on('click', e => {
+  const marker = L.marker(e.latlng, { draggable: true }).addTo(map);
+
+  marker.bindPopup(`
+    Title:<br>
+    <input id="title"><br>
+    RecordJST:<br>
+    <input id="time"><br>
+    Comment:<br>
+    <input id="memo"><br><br>
+    <button id="save">保存</button>
+  `).openPopup();
+
+  marker.on('popupopen', () => {
+    const el = marker.getPopup().getElement();
+
+    el.querySelector('#save').onclick = () => {
+      const title = el.querySelector('#title').value.trim();
+      const recordJST = el.querySelector('#time').value.trim();
+      const comment = el.querySelector('#memo').value.trim();
+      if (!title) return;
+
+      const icon = L.divIcon({
+        className: 'number-icon',
+        html: `<div style="background:${getColor(title)};width:26px;height:26px;border-radius:50%;">${title}</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+
+      marker.setIcon(icon);
+      marker.bindPopup(`<b>${title}</b><br>${recordJST}<br>${comment}`);
+
+      pinData.push({
+        title,
+        recordJST,
+        comment,
+        commentUser: '',
+        audioJson: '',
+        marker
+      });
+
+      marker.on('dragend', updateList);
+      updateList();
+    };
+  });
+});
+
+/* 一覧 */
+function updateList() {
+  const tbody = document.getElementById('list');
+  tbody.innerHTML = '';
+
+  pinData.forEach((p, i) => {
+    const ll = p.marker.getLatLng();
+    const tr = document.createElement('tr');
+
+    tr.innerHTML = `
+      <td>${p.title}</td>
+      <td contenteditable="true">${p.recordJST || ''}</td>
+      <td>${ll.lat.toFixed(6)}</td>
+      <td>${ll.lng.toFixed(6)}</td>
+      <td contenteditable="true">${p.comment}</td>
+      <td contenteditable="true">${p.commentUser || ''}</td>
+      <td contenteditable="true">${p.audioJson || ''}</td>
+      <td><button>削除</button></td>
+    `;
+
+    const cells = tr.querySelectorAll('[contenteditable]');
+    cells[0].oninput = e => p.recordJST = e.target.textContent;
+    cells[1].oninput = e => p.comment = e.target.textContent;
+    cells[2].oninput = e => p.commentUser = e.target.textContent;
+    cells[3].oninput = e => p.audioJson = e.target.textContent;
+
+    tr.querySelector('button').onclick = () => {
+      map.removeLayer(p.marker);
+      pinData.splice(i, 1);
+      updateList();
+    };
+
+    tbody.appendChild(tr);
+  });
+}
+
+/* CSV保存 */
+document.getElementById('saveCsv').onclick = () => {
+  if (!pinData.length) return;
+
+  const header = 'Title,RecordJST,Latitude,Longitude,Comment,CommentUser,AudioJson\n';
+
+  const body = pinData.map(p => {
+    const ll = p.marker.getLatLng();
+    return `"${p.title}","${p.recordJST}",${ll.lat},${ll.lng},"${p.comment}","${p.commentUser}","${p.audioJson}"`;
+  }).join('\n');
+
+  const blob = new Blob(['\uFEFF' + header + body], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pins.csv';
+  a.click();
+};
+
+/* CSV読込（区切り対策） */
+document.getElementById('csvfile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const lines = ev.target.result.replace(/\r/g,'').split('\n');
+
+    pinData.forEach(p => map.removeLayer(p.marker));
+    pinData = [];
+
+    lines.forEach((line, idx) => {
+      if (!line.trim()) return;
+      if (line.startsWith('#')) return; // スキーマ無視
+      if (idx === 0 && line.includes('Title')) return; // ヘッダ無視
+
+      const delimiter =
+        line.includes('\t') ? '\t' :
+        line.includes(';') ? ';' : ',';
+
+      let c = line.split(delimiter);
+
+      if (c.length < 7) return;
+
+      c = c.map(v => v.replace(/^"|"$/g,'').trim());
+
+      const title = c[0];
+      const recordJST = c[1];
+      const lat = parseFloat(c[2]);
+      const lng = parseFloat(c[3]);
+      const comment = c[4];
+      const commentUser = c[5];
+      const audioJson = c[6];
+
+      if (isNaN(lat) || isNaN(lng)) return;
+
+      const icon = L.divIcon({
+        className: 'number-icon',
+        html: `<div style="background:${getColor(title)};width:26px;height:26px;border-radius:50%;">${title}</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+
+      const marker = L.marker([lat, lng], {
+        draggable: true,
+        icon
+      }).addTo(map);
+
+      marker.bindPopup(`<b>${title}</b><br>${recordJST}<br>${comment}`);
+      marker.on('dragend', updateList);
+
+      pinData.push({
+        title,
+        recordJST,
+        comment,
+        commentUser,
+        audioJson,
+        marker
+      });
+    });
+
+    if (pinData.length) {
+      map.fitBounds(L.featureGroup(pinData.map(p => p.marker)).getBounds().pad(0.2));
+    }
+
+    updateList();
+  };
+  reader.readAsText(file);
+});
+</script>
+
+</body>
+</html>
