@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
@@ -38,6 +39,7 @@ button {
   margin-top: 6px;
 }
 </style>
+
 </head>
 
 <body>
@@ -55,12 +57,13 @@ CSV読込： <input type="file" id="csvfile" accept=".csv">
 <thead>
 <tr>
   <th>ID</th>
+  <th>Title</th>
   <th>RecordJST</th>
   <th>Latitude</th>
   <th>Longitude</th>
   <th>Comment</th>
   <th>CommentUser</th>
-  <th>AudioJson</th>
+  <th>VehicleNo</th>
   <th>削除</th>
 </tr>
 </thead>
@@ -68,6 +71,7 @@ CSV読込： <input type="file" id="csvfile" accept=".csv">
 </table>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
 
 <script>
@@ -80,9 +84,8 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 let gpxLayer = null;
 let pinData = [];
 
-/* 色判定（IDベース） */
 function getColor(value) {
-  if (/^[0-9]/.test(value)) return '#2A93EE'; // 数字
+  if (/^[0-9]/.test(value)) return '#2A93EE';
   if (/^A/i.test(value)) return '#E74C3C';
   if (/^B/i.test(value)) return '#F39C12';
   if (/^C/i.test(value)) return '#27AE60';
@@ -114,12 +117,12 @@ map.on('click', e => {
   const marker = L.marker(e.latlng, { draggable: true }).addTo(map);
 
   marker.bindPopup(`
-    ID:<br>
-    <input id="id"><br>
-    RecordJST:<br>
-    <input id="time"><br>
-    Comment:<br>
-    <input id="memo"><br><br>
+    ID:<br><input id="id"><br>
+    Title:<br><input id="title"><br>
+    RecordJST:<br><input id="time"><br>
+    Comment:<br><input id="memo"><br>
+    CommentUser:<br><input id="user"><br>
+    VehicleNo:<br><input id="vehicle"><br><br>
     <button id="save">保存</button>
   `).openPopup();
 
@@ -128,9 +131,17 @@ map.on('click', e => {
 
     el.querySelector('#save').onclick = () => {
       const id = el.querySelector('#id').value.trim();
-      const recordJST = el.querySelector('#time').value.trim();
-      const comment = el.querySelector('#memo').value.trim();
       if (!id) return;
+
+      const data = {
+        id,
+        title: el.querySelector('#title').value.trim(),
+        recordJST: el.querySelector('#time').value.trim(),
+        comment: el.querySelector('#memo').value.trim(),
+        commentUser: el.querySelector('#user').value.trim(),
+        vehicleNo: el.querySelector('#vehicle').value.trim(),
+        marker
+      };
 
       const icon = L.divIcon({
         className: 'number-icon',
@@ -140,20 +151,11 @@ map.on('click', e => {
       });
 
       marker.setIcon(icon);
-      marker.bindPopup(`<b>ID:${id}</b><br>${recordJST}<br>${comment}`);
-
-      pinData.push({
-        id,
-        title: '', // 完全未使用
-        recordJST,
-        comment,
-        category: '',
-        commentUser: '',
-        audioJson: '',
-        marker
-      });
+      marker.bindPopup(`<b>ID:${id}</b><br>${data.title}<br>${data.recordJST}`);
 
       marker.on('dragend', updateList);
+
+      pinData.push(data);
       updateList();
     };
   });
@@ -170,20 +172,22 @@ function updateList() {
 
     tr.innerHTML = `
       <td>${p.id}</td>
+      <td contenteditable="true">${p.title || ''}</td>
       <td contenteditable="true">${p.recordJST || ''}</td>
       <td>${ll.lat.toFixed(6)}</td>
       <td>${ll.lng.toFixed(6)}</td>
       <td contenteditable="true">${p.comment}</td>
       <td contenteditable="true">${p.commentUser || ''}</td>
-      <td contenteditable="true">${p.audioJson || ''}</td>
+      <td contenteditable="true">${p.vehicleNo || ''}</td>
       <td><button>削除</button></td>
     `;
 
     const cells = tr.querySelectorAll('[contenteditable]');
-    cells[0].oninput = e => p.recordJST = e.target.textContent;
-    cells[1].oninput = e => p.comment = e.target.textContent;
-    cells[2].oninput = e => p.commentUser = e.target.textContent;
-    cells[3].oninput = e => p.audioJson = e.target.textContent;
+    cells[0].oninput = e => p.title = e.target.textContent;
+    cells[1].oninput = e => p.recordJST = e.target.textContent;
+    cells[2].oninput = e => p.comment = e.target.textContent;
+    cells[3].oninput = e => p.commentUser = e.target.textContent;
+    cells[4].oninput = e => p.vehicleNo = e.target.textContent;
 
     tr.querySelector('button').onclick = () => {
       map.removeLayer(p.marker);
@@ -199,11 +203,11 @@ function updateList() {
 document.getElementById('saveCsv').onclick = () => {
   if (!pinData.length) return;
 
-  const header = 'ID,Title,RecordJST,Latitude,Longitude,Comment,Category,CommentUser,AudioJson\n';
+  const header = 'ID,Title,RecordJST,Latitude,Longitude,Comment,CommentUser,VehicleNo\n';
 
   const body = pinData.map(p => {
     const ll = p.marker.getLatLng();
-    return `${p.id},"","${p.recordJST}",${ll.lat},${ll.lng},"${p.comment}","","${p.commentUser}","${p.audioJson}"`;
+    return `${p.id},"${p.title}","${p.recordJST}",${ll.lat},${ll.lng},"${p.comment}","${p.commentUser}","${p.vehicleNo}"`;
   }).join('\n');
 
   const blob = new Blob(['\uFEFF' + header + body], { type: 'text/csv;charset=utf-8;' });
@@ -227,7 +231,6 @@ document.getElementById('csvfile').addEventListener('change', e => {
 
     lines.forEach((line, idx) => {
       if (!line.trim()) return;
-      if (line.startsWith('#')) return;
       if (idx === 0 && line.includes('ID')) return;
 
       const delimiter =
@@ -235,17 +238,18 @@ document.getElementById('csvfile').addEventListener('change', e => {
         line.includes(';') ? ';' : ',';
 
       let c = line.split(delimiter);
-      if (c.length < 9) return;
+      if (c.length < 8) return;
 
       c = c.map(v => v.replace(/^"|"$/g,'').trim());
 
       const id = c[0];
+      const title = c[1];
       const recordJST = c[2];
       const lat = parseFloat(c[3]);
       const lng = parseFloat(c[4]);
       const comment = c[5];
-      const commentUser = c[7];
-      const audioJson = c[8];
+      const commentUser = c[6];
+      const vehicleNo = c[7];
 
       if (isNaN(lat) || isNaN(lng)) return;
 
@@ -261,17 +265,16 @@ document.getElementById('csvfile').addEventListener('change', e => {
         icon
       }).addTo(map);
 
-      marker.bindPopup(`<b>ID:${id}</b><br>${recordJST}<br>${comment}`);
+      marker.bindPopup(`<b>ID:${id}</b><br>${title}<br>${recordJST}`);
       marker.on('dragend', updateList);
 
       pinData.push({
         id,
-        title: '',
+        title,
         recordJST,
         comment,
-        category: '',
         commentUser,
-        audioJson,
+        vehicleNo,
         marker
       });
     });
