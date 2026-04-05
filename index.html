@@ -57,7 +57,6 @@ CSV読込： <input type="file" id="csvfile" accept=".csv">
 <thead>
 <tr>
   <th>ID</th>
-  <th>Title</th>
   <th>RecordJST</th>
   <th>Latitude</th>
   <th>Longitude</th>
@@ -84,6 +83,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 let gpxLayer = null;
 let pinData = [];
 
+/* 色 */
 function getColor(value) {
   if (/^[0-9]/.test(value)) return '#2A93EE';
   if (/^A/i.test(value)) return '#E74C3C';
@@ -118,7 +118,6 @@ map.on('click', e => {
 
   marker.bindPopup(`
     ID:<br><input id="id"><br>
-    Title:<br><input id="title"><br>
     RecordJST:<br><input id="time"><br>
     Comment:<br><input id="memo"><br>
     CommentUser:<br><input id="user"><br>
@@ -135,7 +134,7 @@ map.on('click', e => {
 
       const data = {
         id,
-        title: el.querySelector('#title').value.trim(),
+        title: "", // 非表示だが保持
         recordJST: el.querySelector('#time').value.trim(),
         comment: el.querySelector('#memo').value.trim(),
         commentUser: el.querySelector('#user').value.trim(),
@@ -151,7 +150,7 @@ map.on('click', e => {
       });
 
       marker.setIcon(icon);
-      marker.bindPopup(`<b>ID:${id}</b><br>${data.title}<br>${data.recordJST}`);
+      marker.bindPopup(`<b>ID:${id}</b><br>${data.recordJST}`);
 
       marker.on('dragend', updateList);
 
@@ -172,7 +171,6 @@ function updateList() {
 
     tr.innerHTML = `
       <td>${p.id}</td>
-      <td contenteditable="true">${p.title || ''}</td>
       <td contenteditable="true">${p.recordJST || ''}</td>
       <td>${ll.lat.toFixed(6)}</td>
       <td>${ll.lng.toFixed(6)}</td>
@@ -183,11 +181,10 @@ function updateList() {
     `;
 
     const cells = tr.querySelectorAll('[contenteditable]');
-    cells[0].oninput = e => p.title = e.target.textContent;
-    cells[1].oninput = e => p.recordJST = e.target.textContent;
-    cells[2].oninput = e => p.comment = e.target.textContent;
-    cells[3].oninput = e => p.commentUser = e.target.textContent;
-    cells[4].oninput = e => p.vehicleNo = e.target.textContent;
+    cells[0].oninput = e => p.recordJST = e.target.textContent;
+    cells[1].oninput = e => p.comment = e.target.textContent;
+    cells[2].oninput = e => p.commentUser = e.target.textContent;
+    cells[3].oninput = e => p.vehicleNo = e.target.textContent;
 
     tr.querySelector('button').onclick = () => {
       map.removeLayer(p.marker);
@@ -199,7 +196,7 @@ function updateList() {
   });
 }
 
-/* CSV保存 */
+/* CSV保存（Title列は維持する） */
 document.getElementById('saveCsv').onclick = () => {
   if (!pinData.length) return;
 
@@ -207,7 +204,7 @@ document.getElementById('saveCsv').onclick = () => {
 
   const body = pinData.map(p => {
     const ll = p.marker.getLatLng();
-    return `${p.id},"${p.title}","${p.recordJST}",${ll.lat},${ll.lng},"${p.comment}","${p.commentUser}","${p.vehicleNo}"`;
+    return `${p.id},"${p.title || ""}","${p.recordJST}",${ll.lat},${ll.lng},"${p.comment}","${p.commentUser}","${p.vehicleNo}"`;
   }).join('\n');
 
   const blob = new Blob(['\uFEFF' + header + body], { type: 'text/csv;charset=utf-8;' });
@@ -217,7 +214,7 @@ document.getElementById('saveCsv').onclick = () => {
   a.click();
 };
 
-/* CSV読込 */
+/* CSV読込（Titleあり/なし両対応） */
 document.getElementById('csvfile').addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -233,23 +230,24 @@ document.getElementById('csvfile').addEventListener('change', e => {
       if (!line.trim()) return;
       if (idx === 0 && line.includes('ID')) return;
 
-      const delimiter =
-        line.includes('\t') ? '\t' :
-        line.includes(';') ? ';' : ',';
-
-      let c = line.split(delimiter);
-      if (c.length < 8) return;
-
+      let c = line.split(',');
       c = c.map(v => v.replace(/^"|"$/g,'').trim());
 
+      let title = "";
+      let offset = 0;
+
+      if (c.length >= 8) {
+        title = c[1]; // 読むだけ（非表示）
+        offset = 1;
+      }
+
       const id = c[0];
-      const title = c[1];
-      const recordJST = c[2];
-      const lat = parseFloat(c[3]);
-      const lng = parseFloat(c[4]);
-      const comment = c[5];
-      const commentUser = c[6];
-      const vehicleNo = c[7];
+      const recordJST = c[1 + offset];
+      const lat = parseFloat(c[2 + offset]);
+      const lng = parseFloat(c[3 + offset]);
+      const comment = c[4 + offset];
+      const commentUser = c[5 + offset];
+      const vehicleNo = c[6 + offset];
 
       if (isNaN(lat) || isNaN(lng)) return;
 
@@ -265,12 +263,12 @@ document.getElementById('csvfile').addEventListener('change', e => {
         icon
       }).addTo(map);
 
-      marker.bindPopup(`<b>ID:${id}</b><br>${title}<br>${recordJST}`);
+      marker.bindPopup(`<b>ID:${id}</b><br>${recordJST}`);
       marker.on('dragend', updateList);
 
       pinData.push({
         id,
-        title,
+        title, // 内部保持のみ
         recordJST,
         comment,
         commentUser,
