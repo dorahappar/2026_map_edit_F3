@@ -10,58 +10,40 @@
 body { font-family: sans-serif; margin: 10px; }
 #map { height: 450px; margin-top: 10px; }
 
-.number-icon {
-  color: white;
+/* ピン */
+.number-icon div {
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  width: 26px;
-  height: 26px;
+  color: #fff;
   text-align: center;
-  line-height: 26px;
+  line-height: 28px;
   font-weight: bold;
-  border: 2px solid white;
+  border: 2px solid #fff;
+  font-size: 12px;
 }
 
-table {
-  border-collapse: collapse;
-  width: 100%;
-  margin-top: 10px;
-}
-th, td {
-  border: 1px solid #aaa;
-  padding: 4px;
-}
-td[contenteditable] {
-  background: #f9f9f9;
-}
-button {
-  padding: 4px 8px;
-  margin-top: 6px;
-}
+/* 一覧 */
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #aaa; padding: 4px; }
+.no-coord { background: #eee; }
 </style>
 </head>
 
 <body>
 <h3>GPX/CSV保存（PowerApps）</h3>
 
-GPX読込： <input type="file" id="gpxfile" accept=".gpx">
-CSV読込： <input type="file" id="csvfile" accept=".csv">
-
+GPX: <input type="file" id="gpxfile">
+CSV/TSV: <input type="file" id="csvfile">
 <button id="saveCsv">CSV保存</button>
 
 <div id="map"></div>
 
-<h4>ピン一覧（編集可）</h4>
 <table>
 <thead>
 <tr>
-  <th>ID</th>
-  <th>RecordJST</th>
-  <th>Latitude</th>
-  <th>Longitude</th>
-  <th>Comment</th>
-  <th>CommentUser</th>
-  <th>VehicleNo</th>
-  <th>削除</th>
+<th>ID</th><th>Time</th><th>Lat</th><th>Lng</th>
+<th>Comment</th><th>User</th><th>Vehicle</th><th>削除</th>
 </tr>
 </thead>
 <tbody id="list"></tbody>
@@ -71,262 +53,156 @@ CSV読込： <input type="file" id="csvfile" accept=".csv">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
 
 <script>
-const map = L.map('map').setView([35.681236, 139.767125], 12);
+const map = L.map('map').setView([35.68,139.76],12);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap'
-}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-let gpxLayer = null;
-let pinData = [];
+let gpxLayer=null;
+let pinData=[];
 
-/* 色 */
-function getColor(value) {
-  if (/^[0-9]/.test(value)) return '#2A93EE';
-  if (/^A/i.test(value)) return '#E74C3C';
-  if (/^B/i.test(value)) return '#F39C12';
-  if (/^C/i.test(value)) return '#27AE60';
-  return '#7F8C8D';
+/* 色判定 */
+function getColor(id){
+  if(/^[0-9]/.test(id)) return "#2A93EE"; // 数字
+  if(/^A/i.test(id)) return "#E74C3C";
+  if(/^B/i.test(id)) return "#F39C12";
+  if(/^C/i.test(id)) return "#27AE60";
+  return "#7F8C8D";
 }
 
-/* CSVパース（カンマ対応） */
-function parseCSVLine(line) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === ',' && !inQuotes) {
-      result.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  result.push(current);
-  return result.map(v => v.trim());
+/* アイコン */
+function createIcon(id){
+  return L.divIcon({
+    className: 'number-icon',
+    html: `<div style="background:${getColor(id)}">${id}</div>`,
+    iconSize: [28,28],
+    iconAnchor: [14,14]
+  });
 }
 
 /* GPX */
-document.getElementById('gpxfile').addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
+document.getElementById('gpxfile').onchange=e=>{
+  const file=e.target.files[0];
+  if(!file)return;
 
-  if (gpxLayer) map.removeLayer(gpxLayer);
+  if(gpxLayer) map.removeLayer(gpxLayer);
 
-  const reader = new FileReader();
-  reader.onload = ev => {
-    gpxLayer = new L.GPX(ev.target.result, {
-      async: true,
-      polyline_options: { color: 'blue', weight: 4 },
-      marker_options: { startIconUrl: null, endIconUrl: null }
-    })
-    .on('loaded', e => map.fitBounds(e.target.getBounds()))
-    .addTo(map);
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    gpxLayer=new L.GPX(ev.target.result,{async:true})
+      .on('loaded',e=>map.fitBounds(e.target.getBounds()))
+      .addTo(map);
   };
   reader.readAsText(file);
-});
+};
 
-/* CSV読込（title） */
-document.getElementById('csvfile').addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
+/* パース */
+function parseLine(line){
+  return line.includes('\t')
+    ? line.split('\t').map(v=>v.trim())
+    : line.split(',').map(v=>v.replace(/"/g,'').trim());
+}
 
-  const reader = new FileReader();
+function toNumber(v){
+  return parseFloat((v||"").replace(/"/g,'').trim());
+}
 
-  reader.onload = ev => {
-    const lines = ev.target.result.replace(/\r/g, '').split('\n').filter(l => l.trim());
+/* CSV */
+document.getElementById('csvfile').onchange=e=>{
+  const file=e.target.files[0];
+  if(!file)return;
 
-    pinData.forEach(p => map.removeLayer(p.marker));
-    pinData = [];
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const lines=ev.target.result.split(/\r?\n/).filter(l=>l);
 
-    if (lines.length === 0) return;
+    pinData.forEach(p=>p.marker&&map.removeLayer(p.marker));
+    pinData=[];
 
-    const normalize = s => s.toLowerCase().replace(/\s/g, '');
+    const header=parseLine(lines[0]).map(h=>h.toLowerCase());
 
-    const rawHeader = parseCSVLine(lines[0]);
-    const headerMap = {};
-    rawHeader.forEach((h, i) => headerMap[normalize(h)] = i);
-
-    const getIndex = (...names) => {
-      for (let n of names) {
-        const idx = headerMap[normalize(n)];
-        if (idx !== undefined) return idx;
+    const find=(names)=>{
+      for(let n of names){
+        const i=header.indexOf(n);
+        if(i!==-1)return i;
       }
       return -1;
     };
 
-    const idxID = getIndex("ID");
-    const idxTime = getIndex("RecordJST","Time","日時");
-    const idxLat = getIndex("Latitude","Lat","緯度");
-    const idxLng = getIndex("Longitude","Lng","経度");
-    const idxComment = getIndex("Comment","Memo","備考");
-    const idxUser = getIndex("CommentUser","User","担当者");
-    const idxVehicle = getIndex("VehicleNo","Vehicle","車番");
+    const iID=find(["id"]);
+    const iLat=find(["latitude","lat","緯度"]);
+    const iLng=find(["longitude","lng","経度"]);
+    const iTime=find(["time","recordjst","日時"]);
+    const iCom=find(["comment","備考"]);
+    const iUser=find(["user"]);
+    const iVeh=find(["vehicle"]);
 
-    if (idxID === -1 || idxLat === -1 || idxLng === -1) {
-      alert("必須列(ID / Latitude / Longitude)がありません");
-      return;
-    }
+    lines.slice(1).forEach(line=>{
+      const c=parseLine(line);
 
-    lines.slice(1).forEach(line => {
-      const c = parseCSVLine(line);
+      const id=c[iID]||"";
+      if(!id)return;
 
-      const id = c[idxID] || "";
-      const recordJST = idxTime !== -1 ? c[idxTime] || "" : "";
-      const lat = parseFloat(c[idxLat]);
-      const lng = parseFloat(c[idxLng]);
-      const comment = idxComment !== -1 ? c[idxComment] || "" : "";
-      const commentUser = idxUser !== -1 ? c[idxUser] || "" : "";
-      const vehicleNo = idxVehicle !== -1 ? c[idxVehicle] || "" : "";
+      const lat=toNumber(c[iLat]);
+      const lng=toNumber(c[iLng]);
 
-      if (!id || isNaN(lat) || isNaN(lng)) return;
+      let marker=null;
 
-      const icon = L.divIcon({
-        className: 'number-icon',
-        html: `<div style="background:${getColor(id)};width:26px;height:26px;border-radius:50%;">${id}</div>`,
-        iconSize: [26, 26],
-        iconAnchor: [13, 13]
-      });
+      if(!isNaN(lat)&&!isNaN(lng)){
+        marker=L.marker([lat,lng],{
+          draggable:true,
+          icon:createIcon(id)
+        }).addTo(map);
 
-      const marker = L.marker([lat, lng], {
-        draggable: true,
-        icon
-      }).addTo(map);
-
-      marker.bindPopup(`<b>ID:${id}</b><br>${recordJST}`);
-      marker.on('dragend', updateList);
+        marker.bindPopup(`<b>${id}</b>`);
+        marker.on('dragend',updateList);
+      }
 
       pinData.push({
         id,
-        title: "", // 完全無視
-        recordJST,
-        comment,
-        commentUser,
-        vehicleNo,
+        time:c[iTime]||"",
+        comment:c[iCom]||"",
+        user:c[iUser]||"",
+        vehicle:c[iVeh]||"",
         marker
       });
     });
 
-    if (pinData.length) {
-      map.fitBounds(L.featureGroup(pinData.map(p => p.marker)).getBounds().pad(0.2));
-    }
-
     updateList();
   };
-
   reader.readAsText(file);
-});
+};
 
-/* ピン追加 */
-map.on('click', e => {
-  const marker = L.marker(e.latlng, { draggable: true }).addTo(map);
+/* 表 */
+function updateList(){
+  const tbody=document.getElementById('list');
+  tbody.innerHTML="";
 
-  marker.bindPopup(`
-    ID:<br><input id="id"><br>
-    RecordJST:<br><input id="time"><br>
-    Comment:<br><input id="memo"><br>
-    CommentUser:<br><input id="user"><br>
-    VehicleNo:<br><input id="vehicle"><br><br>
-    <button id="save">保存</button>
-  `).openPopup();
+  pinData.forEach((p,i)=>{
+    const ll=p.marker?p.marker.getLatLng():null;
+    const tr=document.createElement('tr');
 
-  marker.on('popupopen', () => {
-    const el = marker.getPopup().getElement();
+    if(!ll) tr.classList.add('no-coord');
 
-    el.querySelector('#save').onclick = () => {
-      const id = el.querySelector('#id').value.trim();
-      if (!id) return;
-
-      const data = {
-        id,
-        title: "",
-        recordJST: el.querySelector('#time').value.trim(),
-        comment: el.querySelector('#memo').value.trim(),
-        commentUser: el.querySelector('#user').value.trim(),
-        vehicleNo: el.querySelector('#vehicle').value.trim(),
-        marker
-      };
-
-      const icon = L.divIcon({
-        className: 'number-icon',
-        html: `<div style="background:${getColor(id)};width:26px;height:26px;border-radius:50%;">${id}</div>`,
-        iconSize: [26, 26],
-        iconAnchor: [13, 13]
-      });
-
-      marker.setIcon(icon);
-      marker.bindPopup(`<b>ID:${id}</b><br>${data.recordJST}`);
-      marker.on('dragend', updateList);
-
-      pinData.push(data);
-      updateList();
-    };
-  });
-});
-
-/* 一覧 */
-function updateList() {
-  const tbody = document.getElementById('list');
-  tbody.innerHTML = '';
-
-  pinData.forEach((p, i) => {
-    const ll = p.marker.getLatLng();
-    const tr = document.createElement('tr');
-
-    tr.innerHTML = `
-      <td>${p.id}</td>
-      <td contenteditable="true">${p.recordJST}</td>
-      <td>${ll.lat.toFixed(6)}</td>
-      <td>${ll.lng.toFixed(6)}</td>
-      <td contenteditable="true">${p.comment}</td>
-      <td contenteditable="true">${p.commentUser}</td>
-      <td contenteditable="true">${p.vehicleNo}</td>
-      <td><button>削除</button></td>
+    tr.innerHTML=`
+    <td>${p.id}</td>
+    <td>${p.time}</td>
+    <td>${ll?ll.lat:""}</td>
+    <td>${ll?ll.lng:""}</td>
+    <td>${p.comment}</td>
+    <td>${p.user}</td>
+    <td>${p.vehicle}</td>
+    <td><button>削除</button></td>
     `;
 
-    const cells = tr.querySelectorAll('[contenteditable]');
-    cells[0].oninput = e => p.recordJST = e.target.textContent;
-    cells[1].oninput = e => p.comment = e.target.textContent;
-    cells[2].oninput = e => p.commentUser = e.target.textContent;
-    cells[3].oninput = e => p.vehicleNo = e.target.textContent;
-
-    tr.querySelector('button').onclick = () => {
-      map.removeLayer(p.marker);
-      pinData.splice(i, 1);
+    tr.querySelector('button').onclick=()=>{
+      if(p.marker) map.removeLayer(p.marker);
+      pinData.splice(i,1);
       updateList();
     };
 
     tbody.appendChild(tr);
   });
 }
-
-/* CSV保存 */
-document.getElementById('saveCsv').onclick = () => {
-  if (!pinData.length) return;
-
-  const header = 'ID,Title,RecordJST,Latitude,Longitude,Comment,CommentUser,VehicleNo\n';
-
-  const body = pinData.map(p => {
-    const ll = p.marker.getLatLng();
-    return `${p.id},"","${p.recordJST}",${ll.lat},${ll.lng},"${p.comment}","${p.commentUser}","${p.vehicleNo}"`;
-  }).join('\n');
-
-  const blob = new Blob(['\uFEFF' + header + body], { type: 'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'pins.csv';
-  a.click();
-};
 </script>
 
 </body>
