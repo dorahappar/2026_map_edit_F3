@@ -57,12 +57,12 @@ const map = L.map('map').setView([35.68,139.76],12);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-let gpxLayer=null;
-let pinData=[];
+let gpxLayer = null;
+let pinData = [];
 
 /* 色判定 */
 function getColor(id){
-  if(/^[0-9]/.test(id)) return "#2A93EE"; // 数字
+  if(/^[0-9]/.test(id)) return "#2A93EE";
   if(/^A/i.test(id)) return "#E74C3C";
   if(/^B/i.test(id)) return "#F39C12";
   if(/^C/i.test(id)) return "#27AE60";
@@ -79,17 +79,17 @@ function createIcon(id){
   });
 }
 
-/* GPX */
-document.getElementById('gpxfile').onchange=e=>{
-  const file=e.target.files[0];
-  if(!file)return;
+/* GPXファイル読み込み */
+document.getElementById('gpxfile').onchange = e => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-  if(gpxLayer) map.removeLayer(gpxLayer);
+  if (gpxLayer) map.removeLayer(gpxLayer);
 
-  const reader=new FileReader();
-  reader.onload=ev=>{
-    gpxLayer=new L.GPX(ev.target.result,{async:true})
-      .on('loaded',e=>map.fitBounds(e.target.getBounds()))
+  const reader = new FileReader();
+  reader.onload = ev => {
+    gpxLayer = new L.GPX(ev.target.result, {async:true})
+      .on('loaded', e => map.fitBounds(e.target.getBounds()))
       .addTo(map);
   };
   reader.readAsText(file);
@@ -106,97 +106,153 @@ function toNumber(v){
   return parseFloat((v||"").replace(/"/g,'').trim());
 }
 
-/* CSV */
-document.getElementById('csvfile').onchange=e=>{
-  const file=e.target.files[0];
-  if(!file)return;
+/* CSVファイル読み込み */
+document.getElementById('csvfile').onchange = e => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-  const reader=new FileReader();
-  reader.onload=ev=>{
-    const lines=ev.target.result.split(/\r?\n/).filter(l=>l);
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const lines = ev.target.result.split(/\r?\n/).filter(l=>l);
 
-    pinData.forEach(p=>p.marker&&map.removeLayer(p.marker));
-    pinData=[];
+    pinData.forEach(p => p.marker && map.removeLayer(p.marker));
+    pinData = [];
 
-    const header=parseLine(lines[0]).map(h=>h.toLowerCase());
+    const header = parseLine(lines[0]).map(h => h.toLowerCase());
 
-    const find=(names)=>{
-      for(let n of names){
-        const i=header.indexOf(n);
-        if(i!==-1)return i;
+    const find = (names) => {
+      for(let i=0; i<header.length; i++){
+        const h = header[i].replace(/\s/g, "");
+        for(let n of names){
+          if(h === n) return i;
+        }
       }
       return -1;
     };
 
-    const iID=find(["id"]);
-    const iLat=find(["latitude","lat","緯度"]);
-    const iLng=find(["longitude","lng","経度"]);
-    const iTime=find(["time","recordjst","日時"]);
-    const iCom=find(["comment","備考"]);
-    const iUser=find(["user"]);
-    const iVeh=find(["vehicle"]);
+    const iID = find(["id"]);
+    const iLat = find(["latitude","lat","緯度"]);
+    const iLng = find(["longitude","lng","経度"]);
+    const iTime = find(["time","recordjst","日時"]);
+    const iCom = find(["comment","備考"]);
+    const iUser = find(["user","commentuser"]);
+    const iVeh = find(["vehicle","vehicleno"]);
 
-    lines.slice(1).forEach(line=>{
-      const c=parseLine(line);
+    lines.slice(1).forEach(line => {
+      const c = parseLine(line);
 
-      const id=c[iID]||"";
-      if(!id)return;
+      const id = c[iID] || "";
+      if (!id) return;
 
-      const lat=toNumber(c[iLat]);
-      const lng=toNumber(c[iLng]);
+      const lat = toNumber(c[iLat]);
+      const lng = toNumber(c[iLng]);
 
-      let marker=null;
+      const time = c[iTime] || "";
+      const comment = c[iCom] || "";
+      const user = c[iUser] || "";
+      const vehicle = c[iVeh] || "";
 
-      if(!isNaN(lat)&&!isNaN(lng)){
-        marker=L.marker([lat,lng],{
-          draggable:true,
-          icon:createIcon(id)
+      let marker = null;
+
+      if (!isNaN(lat) && !isNaN(lng)) {
+        marker = L.marker([lat,lng], {
+          draggable: true,
+          icon: createIcon(id)
         }).addTo(map);
 
-        marker.bindPopup(`<b>${id}</b>`);
-        marker.on('dragend',updateList);
+        marker.bindPopup(`
+          <b>${id}</b><br>
+          Time: ${time}<br>
+          Comment: ${comment}<br>
+          User: ${user}<br>
+          Vehicle: ${vehicle}
+        `);
+
+        marker.on('dragend', updateList);
       }
 
-      pinData.push({
-        id,
-        time:c[iTime]||"",
-        comment:c[iCom]||"",
-        user:c[iUser]||"",
-        vehicle:c[iVeh]||"",
-        marker
-      });
+      pinData.push({ id, time, comment, user, vehicle, marker });
     });
 
     updateList();
+
+    /* 最大IDの座標に移動＆ポップアップ表示 */
+    const numericPins = pinData
+      .filter(p => p.marker && !isNaN(parseFloat(p.id)))
+      .map(p => ({ num: parseFloat(p.id), marker: p.marker }));
+
+    if (numericPins.length > 0) {
+      const maxPin = numericPins.reduce((a,b) => a.num > b.num ? a : b);
+      const latlng = maxPin.marker.getLatLng();
+
+      map.setView(latlng, 16);
+      maxPin.marker.openPopup();
+    }
   };
+
   reader.readAsText(file);
 };
 
-/* 表 */
-function updateList(){
-  const tbody=document.getElementById('list');
-  tbody.innerHTML="";
+/* CSV保存 */
+document.getElementById('saveCsv').onclick = () => {
+  if (pinData.length === 0) {
+    alert("保存するデータがありません");
+    return;
+  }
 
-  pinData.forEach((p,i)=>{
-    const ll=p.marker?p.marker.getLatLng():null;
-    const tr=document.createElement('tr');
+  const header = ["ID","Time","Lat","Lng","Comment","User","Vehicle"];
+  const rows = pinData.map(p => {
+    const ll = p.marker ? p.marker.getLatLng() : {lat:"", lng:""};
+    return [
+      p.id,
+      p.time,
+      ll.lat,
+      ll.lng,
+      p.comment,
+      p.user,
+      p.vehicle
+    ].map(v => `"${v}"`).join(",");
+  });
+
+  const csvContent = [header.join(","), ...rows].join("\r\n");
+
+  const blob = new Blob([csvContent], {type: "text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "data.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+/* 表更新 */
+function updateList(){
+  const tbody = document.getElementById('list');
+  tbody.innerHTML = "";
+
+  pinData.forEach((p, i) => {
+    const ll = p.marker ? p.marker.getLatLng() : null;
+    const tr = document.createElement('tr');
 
     if(!ll) tr.classList.add('no-coord');
 
-    tr.innerHTML=`
-    <td>${p.id}</td>
-    <td>${p.time}</td>
-    <td>${ll?ll.lat:""}</td>
-    <td>${ll?ll.lng:""}</td>
-    <td>${p.comment}</td>
-    <td>${p.user}</td>
-    <td>${p.vehicle}</td>
-    <td><button>削除</button></td>
+    tr.innerHTML = `
+      <td>${p.id}</td>
+      <td>${p.time}</td>
+      <td>${ll ? ll.lat : ""}</td>
+      <td>${ll ? ll.lng : ""}</td>
+      <td>${p.comment}</td>
+      <td>${p.user}</td>
+      <td>${p.vehicle}</td>
+      <td><button>削除</button></td>
     `;
 
-    tr.querySelector('button').onclick=()=>{
+    tr.querySelector('button').onclick = () => {
       if(p.marker) map.removeLayer(p.marker);
-      pinData.splice(i,1);
+      pinData.splice(i, 1);
       updateList();
     };
 
